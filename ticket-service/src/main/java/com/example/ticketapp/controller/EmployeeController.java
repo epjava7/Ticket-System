@@ -31,12 +31,38 @@ public class EmployeeController {
     @Autowired
     private RoleRepository roleRepository;
 
+    @GetMapping("/login")
+    public ResponseEntity<?> getLoginStatus(Authentication auth) {
+        if (auth != null && auth.isAuthenticated()) 
+            return ResponseEntity.status(200).body(Map.of("valid", true));
+        return ResponseEntity.status(401).body(Map.of("valid", false));
+    }
+
+    @GetMapping("/detailsForAuth/{email:.+}")
+    public ResponseEntity<?> getEmployeeForAuth(@PathVariable String email) {
+        try {
+            Employee employee = employeeService.findEmployeeByEmail(email);
+            if (employee == null) {
+                return ResponseEntity.status(404).body(Map.of("error", "Employee not found"));
+            } 
+            var res = new HashMap<String, Object>();
+            res.put("id", employee.getId());
+            res.put("name", employee.getName());
+            res.put("email", employee.getEmail());
+            res.put("password", employee.getPassword());
+            res.put("roles", employee.getRoles());
+            return ResponseEntity.status(200).body(res);
+        } catch (RuntimeException e) {
+            return ResponseEntity.status(404).body(Map.of("error", "Employee not found"));
+        }
+    }
+
     @PostMapping("/signup")
     public ResponseEntity<?> saveEmployee(@RequestBody Employee employee) {
         try {
             var savedEmployee = employeeService.saveEmployee(employee);
             savedEmployee.setPassword(null);
-            return ResponseEntity.status(200).body(savedEmployee);
+            return ResponseEntity.status(200).body(Map.of("valid", true));
         } catch (RuntimeException e) {
             var res = new HashMap<String, String>();
             String message = e.getMessage();
@@ -45,7 +71,7 @@ public class EmployeeController {
             } else if (message.equals("Name exists")) {
                 res.put("nameError", "UserName already exists. Try Again!");
             } else {
-                res.put("error", "Failed");
+                res.put("error", "Failed. Please try again.");
             }
             return ResponseEntity.status(200).body(res);
         }
@@ -58,8 +84,8 @@ public class EmployeeController {
         var res = new ArrayList<Map<String, Object>>();
         for (var e: employeeList) {
             var m = new HashMap<String,Object>();
-            m.put("id",    e.getId());
-            m.put("name",  e.getName());
+            m.put("id", e.getId());
+            m.put("name", e.getName());
             m.put("email", e.getEmail());
             var roles = e.getRoles();
             var roleSet = new HashSet<String>();
@@ -79,13 +105,8 @@ public class EmployeeController {
         return ResponseEntity.status(200).body(employee);
     }
 
-    @GetMapping("/getDetails") 
-    public ResponseEntity<?> getDetails(Authentication auth) {
-        if (auth == null || !auth.isAuthenticated()) {
-            return ResponseEntity.status(401).body("Unauthorized");
-        }
-
-        String email = auth.getName();
+    @GetMapping("/getDetails/{email:.+}") 
+    public ResponseEntity<?> getDetails(@PathVariable String email) {
         try {
             var employee = employeeService.findEmployeeByEmail(email);
             employee.setPassword(null); 

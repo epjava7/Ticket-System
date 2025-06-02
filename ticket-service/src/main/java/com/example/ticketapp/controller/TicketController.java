@@ -5,6 +5,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.http.ResponseEntity;
@@ -21,7 +23,10 @@ import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
 
 import com.example.ticketapp.service.TicketService;
+import com.example.ticketapp.domain.Employee;
 import com.example.ticketapp.domain.Ticket;
+import com.example.ticketapp.domain.TicketHistory;
+import com.example.ticketapp.domain.TicketStatus;
 
 @RestController
 @RequestMapping("/api/tickets")
@@ -40,9 +45,9 @@ public class TicketController {
 
         try {
             Ticket savedTicket = ticketService.saveTicket(ticket, files);
-            return ResponseEntity.status(200).body(savedTicket);
+            return ResponseEntity.status(200).body(Map.of("valid", true));
         } catch (IOException e) {
-            return ResponseEntity.status(500).body(e.getMessage());
+            return ResponseEntity.status(500).body(Map.of("error",e.getMessage()));
         }
     }
 
@@ -83,5 +88,32 @@ public class TicketController {
         Ticket ticket = ticketService.getTicketById(id);
         return ResponseEntity.status(200).body(ticket);
     }
+
+    @PutMapping("/status/{id}")
+    public ResponseEntity<?> updateTicketStatus(@PathVariable Long id, @RequestBody Map<String, Object> req) {
+        String newStatus = (String) req.get("status");
+        String comments = (String) req.get("comments"); 
+        Long actionById = null;
+        Object actionByIdObj = req.get("actionById");
+        if (actionByIdObj instanceof Number) {
+            actionById = ((Number) actionByIdObj).longValue();
+        } else if (actionByIdObj != null) {
+            try {
+                actionById = Long.parseLong(actionByIdObj.toString());
+            } catch (NumberFormatException e) {
+                return ResponseEntity.status(400).body(Map.of("error", "Invalid format for actionById"));
+            }
+        }
+
+        Ticket updatedTicket = ticketService.updateTicketStatus(id, newStatus.toUpperCase(), comments, actionById);
+        return ResponseEntity.status(200).body(updatedTicket);
+    }
+
+    @GetMapping("/history/{ticketId}")
+    public ResponseEntity<?> getTicketHistory(@PathVariable Long ticketId) {
+        List<TicketHistory> history = ticketService.getTicketHistory(ticketId);
+        return ResponseEntity.status(200).body(history);
+    }
+    
 
 }

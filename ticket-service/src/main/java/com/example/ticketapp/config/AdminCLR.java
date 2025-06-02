@@ -43,6 +43,13 @@ public class AdminCLR implements CommandLineRunner{
             );
         }
 
+        adminEmail = "youshocked15@gmail.com";
+        if (employeeRepository.findByEmail(adminEmail).isEmpty() && employeeRepository.findByName("Admin2").isEmpty()) {
+            employeeRepository.save(
+                new Employee("Admin2", adminEmail, passwordEncoder.encode("admin"), Set.of("ADMIN", "MANAGER", "USER"))
+            );
+        }
+
         String managerEmail = "manager@manager.com";
         if (employeeRepository.findByEmail(managerEmail).isEmpty() && employeeRepository.findByName("Manager").isEmpty()) {
             employeeRepository.save(

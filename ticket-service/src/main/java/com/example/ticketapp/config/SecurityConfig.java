@@ -14,7 +14,6 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.security.core.userdetails.UserDetailsService;
-import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import java.util.Arrays;
 
 
@@ -23,9 +22,6 @@ public class SecurityConfig {
 
     @Autowired
     private UserDetailsService userDetailsService;
-
-    @Autowired
-    private JwtAuthFilter jwtAuthFilter;
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -50,24 +46,8 @@ public class SecurityConfig {
             .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             .and()
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers(
-                "/api/employees/signup", 
-                "/api/auth/refresh", 
-                "/api/auth/loginStatus", 
-                "/api/auth/login",
-                "/api/auth/isTokenValid",
-                "/api/auth/logout",
-                "/error"
-                ).permitAll() 
-
-                .requestMatchers("/api/tickets/**",
-                 "/api/employees/getDetails",
-                 "/api/employees/all"
-                 ).authenticated()
-
-                .anyRequest().authenticated()
-            )
-            .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .anyRequest().permitAll()
+            );
         return http.build();
     }
 
@@ -82,5 +62,4 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/**", config);
         return source;
     }
-    
 }

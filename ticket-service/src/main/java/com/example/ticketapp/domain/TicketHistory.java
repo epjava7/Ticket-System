@@ -7,6 +7,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import java.time.Instant;
+import jakarta.persistence.Transient;
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import jakarta.persistence.Lob;
 
 @Entity
@@ -27,6 +30,10 @@ public class TicketHistory {
 
     @Lob
     private String comments;
+
+    @Transient
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String actionByName;
 
     public Long getId() {
         return id;
@@ -74,5 +81,13 @@ public class TicketHistory {
 
     public void setComments(String comments) {
         this.comments = comments;
+    }
+
+    public String getActionByName() {
+        return actionByName;
+    }
+
+    public void setActionByName(String actionByName) {
+        this.actionByName = actionByName;
     }
 }

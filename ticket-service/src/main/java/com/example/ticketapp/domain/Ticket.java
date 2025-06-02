@@ -60,6 +60,14 @@ public class Ticket {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String createdByName;
 
+    @Transient
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private Instant lastUpdateDate;
+
+    @Transient
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String lastUpdatedByName;
+
     @PrePersist
     protected void onCreate() {
         this.creationDate = Instant.now();
@@ -177,5 +185,21 @@ public class Ticket {
 
     public void setCreatedByName(String createdByName) {
         this.createdByName = createdByName;
+    }
+
+    public Instant getLastUpdateDate() {
+        return lastUpdateDate;
+    }
+
+    public void setLastUpdateDate(Instant lastUpdateDate) {
+        this.lastUpdateDate = lastUpdateDate;
+    }
+
+    public String getLastUpdatedByName() {
+        return lastUpdatedByName;
+    }
+
+    public void setLastUpdatedByName(String lastUpdatedByName) {
+        this.lastUpdatedByName = lastUpdatedByName;
     }
 }

@@ -9,8 +9,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import java.util.HashSet;
+import java.util.Set;
 
 import com.example.ticketapp.repository.EmployeeRepository;
+import com.example.ticketapp.domain.Employee;
 
 @Service
 public class UserDetailsServiceImpl implements UserDetailsService {
@@ -19,15 +21,11 @@ public class UserDetailsServiceImpl implements UserDetailsService {
     private EmployeeRepository employeeRepository;
 
     @Override
-    public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
-        var employee = employeeRepository.findByEmail(email)
-                        .orElseThrow(() -> new UsernameNotFoundException(email));
-
-        var auths = new HashSet<GrantedAuthority>();
-        for (String role: employee.getRoles()) {
-            auths.add(new SimpleGrantedAuthority(role));
-        }
-
-        return new User(employee.getEmail(), employee.getPassword(), auths);
+    public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
+            Employee employee = employeeRepository.findByEmail(username).orElseThrow();
+            Set<GrantedAuthority> auths = new HashSet<>();
+            employee.getRoles().forEach(
+                role -> auths.add(new SimpleGrantedAuthority(role)));
+            return new User(employee.getEmail(), employee.getPassword(), auths);
     }
 }

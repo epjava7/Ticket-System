@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ticket Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        #ticketList table td {
+            padding-top: 1.5rem; 
+            padding-bottom: 1.5rem; 
+            vertical-align: middle; 
+        }
+
+        #ticketList {
+            height: 60vh; 
+            overflow-y: auto;
+        }
+
+        .last-update-cell {
+            font-size: 0.85em; 
+            line-height: 1.2; 
+        }
+        .ticket-item.highlighted-row { 
+            background-color: #e9ecef; 
+        }
+        .ticket-actions-row td {
+            background-color: #f8f9fa; 
+            border-top: 1px solid #dee2e6;
+            border-bottom: 1px solid #dee2e6;
+        }
+    </style>
+</head>
+<body>
+    <div id="main" class="container">
+        <div id="dashboardAlertPlaceholder" class="mt-2"></div>
+        <div class="d-flex justify-content-between align-items-center mt-3 mb-3">
+            <h1 id="welcomeEmployee">Ticket Dashboard</h1>
+            <div>
+                <a th:href="@{/users}" class="btn btn-secondary">Team</a> 
+                <button id="logoutButton" class="btn btn-danger">Logout</button>
+            </div>
+        </div>
+
+        <div class="d-flex justify-content-center align-items-center mb-3">
+            <div class="me-4">
+                <button type="button" class="btn btn-success" data-bs-toggle="modal" data-bs-target="#ticketModal">Ticket (+)</button>
+            </div>
+            <ul class="nav nav-pills" id="statusNavbar" style="cursor: pointer;">
+                <li class="nav-item">
+                    <a class="nav-link active" data-status="OPEN">Open</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-status="REOPENED">ReOpened</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-status="APPROVED">Approved</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-status="REJECTED">Rejected</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-status="RESOLVED">Resolved</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" data-status="CLOSED">Closed</a>
+                </li>
+            </ul>
+        </div>
+
+        <div id="ticketList" class="mt-3 table-responsive"></div>
+        <div id="paginationControls" class="d-flex justify-content-center mt-4"></div>
+    </div>
+
+    <div class="modal" id="ticketModal">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="createTicketModalLabel">Ticket (+)</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="createTicketForm">
+                        <div class="mb-2">
+                            <label for="ticketTitle" class="form-label">Title:</label>
+                            <input type="text" class="form-control" id="ticketTitle" required>
+                        </div>
+                        <div class="mb-2">
+                            <label for="ticketDescription" class="form-label">Description:</label>
+                            <textarea class="form-control" id="ticketDescription" rows="2" required></textarea>
+                        </div>
+                        <div class="mb-2">
+                            <label for="ticketPriority" class="form-label">Priority:</label>
+                            <select class="form-select" id="ticketPriority" required>
+                                <option value="LOW" selected>Low</option>
+                                <option value="MEDIUM">Medium</option>
+                                <option value="HIGH">High</option>
+                            </select>
+                        </div>
+
+                        <div class="mb-2">
+                            <label for="ticketCategory" class="form-label">Category:</label>
+                            <select class="form-select" id="ticketCategory" required></select>
+                        </div>
+                        <div class="mb-2" id="customCategoryDiv" style="display: none;">
+                            <input type="text" class="form-control" id="customCategory" placeholder="Create New Category">
+                        </div>
+
+                        <div class="mb-3">
+                            <label for="ticketFiles" class="form-label">File (Optional):</label>
+                            <input class="form-control" type="file" id="ticketFiles" multiple>
+                        </div>
+                        <button type="submit" class="btn btn-success">Create Ticket</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script> 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/sockjs-client/1.5.1/sockjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/stomp.js/2.3.3/stomp.min.js"></script>
+<script th:src="@{/js/websocket.js}"></script>
+<script>
+$(document).ready(() => {
+
+    let currentUserId = null
+    let currentUserEmail = null
+    let currentUserName = null
+    let currentUserRoles = [] 
+    let currentPage = 1
+    const ticketsPerPage = 7 
+    let currentStatusFilter = "OPEN"
+    let allTicketsData = []
+    let currentGlobalFilteredTickets = []
+    let currentSortColumn = null
+    let currentSortDirection = 'asc'
+
+    getAndStoreUser()
+    loadCategories()
+
+    function getAndStoreUser() {
+        $.ajax({
+            url: '/app/api/employees/details',             
+            type: 'GET',
+            success: function(employee) {
+                currentUserId = employee.id
+                currentUserEmail = employee.email
+                currentUserName = employee.name
+                if (employee.roles && Array.isArray(employee.roles)) { 
+                    currentUserRoles = employee.roles.map(role => (typeof role === 'string' ? role : role.authority))
+                } else {
+                    currentUserRoles = []
+                }
+                $('#welcomeEmployee').text(`Ticket Dashboard`)
+                loadTickets()
+            },
+            error: function() {
+                $('#welcomeEmployee').text(`Ticket Dashboard (Error loading user)`)
+                currentUserRoles = []
+                loadTickets()
+            }
+        })
+    }
+
+    $('#ticketCategory').on('change', function() {
+        if ($(this).val() === 'Other') {
+            $('#customCategoryDiv').show()
+            $('#customCategory').prop('required', true)
+        } else {
+            $('#customCategoryDiv').hide()
+            $('#customCategory').prop('required', false)
+            $('#customCategory').val('')
+        }
+    })
+
+    function loadCategories() {
+        $.ajax({
+            url: '/app/api/tickets/categories', 
+            type: 'GET',
+            success: function(categories) {
+                const $ticketCategory = $('#ticketCategory')
+                $ticketCategory.empty()
+                
+                if (categories && categories.length > 0) {
+                    categories.forEach(category => {
+                        if (category !== 'Other') { 
+                            $ticketCategory.append(`<option value="${category}">${category}</option>`)
+                        }
+                    });
+                }
+                $ticketCategory.append('<option value="Other">Other</option>')
+
+                if (!categories || categories.length === 0) {
+                    $ticketCategory.val('Other')
+                }
+                $ticketCategory.trigger('change')
+            }
+        })
+    }
+
+    function renderPaginationControls(totalTickets, itemsPerPage, pageToHighlight, allFilteredTicketsForHandler) {
+        const $paginationControls = $('#paginationControls')
+        $paginationControls.empty()
+        const totalPages = Math.ceil(totalTickets / itemsPerPage)
+
+
+        let paginationHtml = '<nav><ul class="pagination">'
+
+        let isPrevDisabled = pageToHighlight === 1
+        paginationHtml += `<li class="page-item ${isPrevDisabled ? 'disabled' : ''}">
+                                <a class="page-link" href="#" data-page="${pageToHighlight - 1}">Previous</a>
+                            </li>`
+
+        for (let i = 1; i <= totalPages; i++) {
+            let isActivePage = i === pageToHighlight
+            paginationHtml += `<li class="page-item ${isActivePage ? 'active' : ''}">
+                                    <a class="page-link" href="#" data-page="${i}">${i}</a>
+                                </li>`
+            if (isActivePage) {
+            }
+        }
+
+        let isNextDisabled = pageToHighlight === totalPages;
+        paginationHtml += `<li class="page-item ${isNextDisabled ? 'disabled' : ''}">
+                                <a class="page-link" href="#" data-page="${pageToHighlight + 1}">Next</a>
+                            </li>`
+
+        paginationHtml += '</ul></nav>'
+        $paginationControls.html(paginationHtml)
+
+        $paginationControls.find('a.page-link').on('click', function(e) {
+            e.preventDefault()
+            const pageClicked = $(this).data('page')
+            
+            if (pageClicked > 0 && pageClicked <= totalPages) {
+                currentPage = pageClicked
+                
+                const startIndex = (currentPage - 1) * ticketsPerPage
+                const endIndex = startIndex + ticketsPerPage
+                const ticketsToDisplayOnPage = allFilteredTicketsForHandler.slice(startIndex, endIndex)
+                
+                renderTickets(ticketsToDisplayOnPage, allFilteredTicketsForHandler)
+            } 
+        })
+    }
+
+
+    function updateSortIndicators() {
+        $('#ticketList .sortable-header').each(function() {
+            $(this).find('.sort-indicator').remove()
+            if ($(this).data('column') === currentSortColumn) {
+                const indicator = currentSortDirection === 'asc' ? ' ▲' : ' ▼'
+                $(this).append(`<span class="sort-indicator" style="font-size: 0.8em;">${indicator}</span>`)
+            }
+        })
+    }
+
+    function sortTicketsArray(ticketsArray, columnKey, direction) {
+        ticketsArray.sort((a, b) => {
+            let valA = a[columnKey]
+            let valB = b[columnKey]
+
+            if (columnKey === 'creationDate' || columnKey === 'lastUpdateDate') {
+                valA = new Date(valA)
+                valB = new Date(valB)
+            } else if (typeof valA === 'string') {
+                valA = valA.toLowerCase()
+                valB = valB.toLowerCase()
+            }
+
+            let comparison = 0
+            if (valA > valB) {
+                comparison = 1
+            } else if (valA < valB) {
+                comparison = -1
+            }
+            return direction === 'desc' ? comparison * -1 : comparison
+        })
+    }
+
+
+    function renderTickets(ticketsToRenderOnPage, allFilteredTickets) {
+        const $ticketList = $('#ticketList')
+        $ticketList.empty()
+
+        if (ticketsToRenderOnPage && ticketsToRenderOnPage.length > 0) {
+            let tableHtml = `
+                <table class="table table-hover">
+                    <thead>
+                        <tr>
+                            <th scope="col" class="sortable-header" data-column="title" style="cursor:pointer;">Title</th>
+                            <th scope="col" class="sortable-header" data-column="category" style="cursor:pointer;">Category</th>
+                            <th scope="col" class="sortable-header" data-column="priority" style="cursor:pointer;">Priority</th>
+                            <th scope="col" class="sortable-header" data-column="status" style="cursor:pointer;">Status</th>
+                            <th scope="col" class="sortable-header" data-column="createdByName" style="cursor:pointer;">Created By</th>
+                            <th scope="col" class="sortable-header" data-column="creationDate" style="cursor:pointer;">Date Created</th>
+                            <th scope="col" class="sortable-header" data-column="lastUpdateDate" style="cursor:pointer;">Last Update</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            ticketsToRenderOnPage.forEach(ticket => {
+                let displayTitle = ticket.title
+                
+                const creationDate = new Date(ticket.creationDate).toLocaleDateString()
+                const lastUpdateDateObj = new Date(ticket.lastUpdateDate)
+                const lastUpdatedByName = ticket.lastUpdatedByName || 'N/A'
+                const lastUpdateInfo = `By ${lastUpdatedByName}<br>${lastUpdateDateObj.toLocaleDateString()}`
+
+
+                tableHtml += `
+                    <tr class="ticket-item" data-id="${ticket.id}" style="cursor:pointer;">
+                        <td>${displayTitle}</td>
+                        <td>${ticket.category}</td>
+                        <td>${ticket.priority}</td>
+                        <td>${ticket.status}</td>
+                        <td>${ticket.createdByName}</td>
+                        <td>${creationDate}</td>
+                        <td class="last-update-cell">${lastUpdateInfo}</td>
+                    </tr>
+                `
+            })
+            tableHtml += '</tbody></table>'
+            $ticketList.html(tableHtml)
+            updateSortIndicators()
+            
+            renderPaginationControls(allFilteredTickets.length, ticketsPerPage, currentPage, allFilteredTickets);
+        } else {
+            $ticketList.html('<p class="text-center">No tickets</p>')
+            $('#paginationControls').empty()
+        }
+    }
+
+    function loadTickets(statusFilter = currentStatusFilter, page = 1) {
+        currentStatusFilter = statusFilter
+
+        $.ajax({
+            url: '/app/api/tickets', 
+            type: 'GET',
+            success: function(tickets) {
+                allTicketsData = tickets || []
+                let filteredByStatusTickets = allTicketsData.filter(ticket => ticket.status && ticket.status.toUpperCase() === statusFilter.toUpperCase())
+                
+                currentGlobalFilteredTickets = [...filteredByStatusTickets]
+
+                if (currentSortColumn) {
+                    sortTicketsArray(currentGlobalFilteredTickets, currentSortColumn, currentSortDirection);
+                }
+                
+                currentPage = page; 
+
+                const startIndex = (currentPage - 1) * ticketsPerPage
+                const endIndex = startIndex + ticketsPerPage
+                const ticketsToDisplayOnPage = currentGlobalFilteredTickets.slice(startIndex, endIndex)
+                renderTickets(ticketsToDisplayOnPage, currentGlobalFilteredTickets)
+            }
+        })
+    }
+
+    function showDashboardAlert(message, type) {
+        const $alertPlaceholder = $('#dashboardAlertPlaceholder')
+        const alertHtml = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">
+                            ${message}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>`
+        $alertPlaceholder.html(alertHtml)
+        setTimeout(() => {
+            $alertPlaceholder.find('.alert').first().alert('close')
+        }, 5000)
+    }
+
+    function updateTicketStatusOnDashboard(ticketId, newStatus, comments, ticketRowElement) {
+        $.ajax({
+            url: `/app/api/tickets/status/${ticketId}`,
+            type: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                status: newStatus,
+                comments: comments || "",
+                actionById: currentUserId
+            }),
+            success: function(updatedTicket) {
+                showDashboardAlert(`Ticket ${ticketId} status changed to ${newStatus}.`, 'success');
+    
+                const ticketIndexAll = allTicketsData.findIndex(t => t.id === ticketId)
+                if (ticketIndexAll !== -1) {
+                    allTicketsData[ticketIndexAll] = { ...allTicketsData[ticketIndexAll], ...updatedTicket, status: newStatus, lastUpdateDate: updatedTicket.lastUpdateDate, lastUpdatedByName: updatedTicket.lastUpdatedByName }
+                }
+        
+                const ticketIndexGlobal = currentGlobalFilteredTickets.findIndex(t => t.id === ticketId);
+                if (ticketIndexGlobal !== -1) {
+                    currentGlobalFilteredTickets[ticketIndexGlobal] = { ...currentGlobalFilteredTickets[ticketIndexGlobal], ...updatedTicket, status: newStatus, lastUpdateDate: updatedTicket.lastUpdateDate, lastUpdatedByName: updatedTicket.lastUpdatedByName }
+                }
+        
+                $(ticketRowElement).next('.ticket-actions-row').remove()
+                $(ticketRowElement).removeClass('highlighted-row')
+
+                if (newStatus.toUpperCase() !== currentStatusFilter.toUpperCase()) {
+                    loadTickets(currentStatusFilter, currentPage)
+                } else {
+                    if (ticketRowElement && ticketRowElement.length) {
+                        ticketRowElement.find('td').eq(3).text(newStatus)
+                        if (updatedTicket.lastUpdateDate && updatedTicket.lastUpdatedByName) {
+                            const lastUpdateDateObj = new Date(updatedTicket.lastUpdateDate)
+                            const lastUpdateInfo = `By ${updatedTicket.lastUpdatedByName}<br>${lastUpdateDateObj.toLocaleDateString()}`
+                            ticketRowElement.find('td.last-update-cell').html(lastUpdateInfo)
+                        }
+                        ticketRowElement.addClass('table-success')
+                        setTimeout(() => {
+                            ticketRowElement.removeClass('table-success')
+                        }, 2000)
+                    }
+                }
+            }
+        })
+    }
+
+    $('#statusNavbar').on('click', 'a.nav-link', function(e) {
+        e.preventDefault()
+        $('.ticket-actions-row').remove()
+        $('.ticket-item.highlighted-row').removeClass('highlighted-row')
+        $('#statusNavbar a.nav-link').removeClass('active')
+        $(this).addClass('active')
+        const status = $(this).data('status')
+        loadTickets(status, 1) 
+    })
+
+    $('#ticketList').on('click', '.sortable-header', function() {
+        const columnKey = $(this).data('column')
+
+        if (currentSortColumn === columnKey) {
+            currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc'
+        } else {
+            currentSortColumn = columnKey
+            currentSortDirection = 'asc'
+        }
+
+        if (currentGlobalFilteredTickets.length > 0) {
+            sortTicketsArray(currentGlobalFilteredTickets, currentSortColumn, currentSortDirection)
+            
+            currentPage = 1
+            const startIndex = (currentPage - 1) * ticketsPerPage
+            const endIndex = startIndex + ticketsPerPage
+            const ticketsToDisplayOnPage = currentGlobalFilteredTickets.slice(startIndex, endIndex)
+            
+            renderTickets(ticketsToDisplayOnPage, currentGlobalFilteredTickets)
+        }
+    });
+
+    $('#ticketList').on('click', '.ticket-item', function(event) {
+        if ($(event.target).is('a, button') || $(event.target).closest('a, button').length) {
+            return
+        }
+
+        const $clickedRow = $(this)
+        const ticketId = $clickedRow.data('id')
+        const $existingActionsRow = $clickedRow.next('.ticket-actions-row')
+
+        if ($existingActionsRow.length) {
+            $existingActionsRow.remove()
+            $clickedRow.removeClass('highlighted-row')
+            return
+        }
+
+        $('.ticket-actions-row').remove()
+        $('.ticket-item.highlighted-row').removeClass('highlighted-row')
+
+        const ticket = currentGlobalFilteredTickets.find(t => t.id === ticketId) || allTicketsData.find(t => t.id === ticketId)
+
+        if (!ticket) {
+            console.error("Ticket data not found for ID:", ticketId)
+            return
+        }
+
+        $clickedRow.addClass('highlighted-row')
+
+        let actionsHtml = '<td colspan="7" class="p-3">'
+        actionsHtml += '<div class="d-flex justify-content-between align-items-start">'
+
+        actionsHtml += `<div><a href="/ticket?id=${ticketId}" class="btn btn-sm btn-info">View Ticket</a></div>`
+
+        let rightSideActionsContainerContent = ''
+        let managerActionsDisplayLine = ''
+        let otherActionsDisplayButtons = ''
+        
+        let hasAnyManagerAction = false
+        let hasAnyOtherAction = false
+
+        if (currentUserRoles.includes('MANAGER') && (ticket.status === 'OPEN' || ticket.status === 'REOPENED')) {
+            managerActionsDisplayLine = `
+                <div class="d-flex align-items-center">
+                    <h6 class="mb-0 me-2 text-nowrap">Action:</h6>
+                    <label for="quickActionComment-${ticketId}" class="form-label visually-hidden">Comment:</label>
+                    <textarea id="quickActionComment-${ticketId}" class="form-control form-control-sm me-2" rows="1" placeholder="Comments" style="flex-grow: 1; min-width: 150px; max-width: 250px;"></textarea>
+                    <div class="btn-group btn-group-sm" role="group">
+                        <button class="btn btn-outline-success submit-commented-action-btn" data-ticket-id="${ticketId}" data-action-type="APPROVED">Approve</button>
+                        <button class="btn btn-outline-danger submit-commented-action-btn" data-ticket-id="${ticketId}" data-action-type="REJECTED">Reject</button>
+                    </div>
+                </div>`
+            hasAnyManagerAction = true
+        }
+
+        let tempOtherActionsButtons = ''
+        if (currentUserRoles.includes('ADMIN') && ticket.status === 'APPROVED') {
+            tempOtherActionsButtons += `<button class="btn btn-sm btn-outline-primary quick-action-btn ms-1" data-ticket-id="${ticketId}" data-action="RESOLVED">Resolve</button>`
+            hasAnyOtherAction = true
+        }
+
+        if (currentUserRoles.includes('USER') && ticket.status === 'RESOLVED' && ticket.createdById === currentUserId) {
+            tempOtherActionsButtons += `<button class="btn btn-sm btn-outline-dark quick-action-btn ms-1" data-ticket-id="${ticketId}" data-action="REOPENED">Reopen</button>`
+            tempOtherActionsButtons += `<button class="btn btn-sm btn-outline-secondary quick-action-btn ms-1" data-ticket-id="${ticketId}" data-action="CLOSED">Close</button>`
+            hasAnyOtherAction = true
+        }
+
+        if (hasAnyOtherAction) {
+            if (!hasAnyManagerAction) {
+                otherActionsDisplayButtons = `
+                    <div class="d-flex align-items-center">
+                        <h6 class="mb-0 me-2 text-nowrap">Action:</h6>
+                        ${tempOtherActionsButtons}
+                    </div>`
+            } else {
+                otherActionsDisplayButtons = `<div class="d-flex align-items-center">${tempOtherActionsButtons}</div>`
+            }
+        }
+        
+        if (hasAnyManagerAction || hasAnyOtherAction) {
+            rightSideActionsContainerContent += `<div class="flex-grow-1 ms-3 d-flex flex-column">`
+
+            if (hasAnyManagerAction) {
+                rightSideActionsContainerContent += managerActionsDisplayLine
+            }
+
+            if (hasAnyOtherAction) {
+                const marginTopClass = hasAnyManagerAction ? "mt-2" : ""; 
+                if (otherActionsDisplayButtons) { 
+                        if (marginTopClass && !otherActionsDisplayButtons.includes('class="d-flex align-items-center mt-2"')) { 
+                        if(otherActionsDisplayButtons.startsWith("<div class=\"d-flex align-items-center\">")){
+                            rightSideActionsContainerContent += otherActionsDisplayButtons.replace("<div class=\"d-flex align-items-center\">", `<div class="d-flex align-items-center ${marginTopClass}">`)
+                        } else {
+                            rightSideActionsContainerContent += `<div class="${marginTopClass}">${otherActionsDisplayButtons}</div>`
+                        }
+                    } else {
+                            rightSideActionsContainerContent += otherActionsDisplayButtons
+                    }
+                }
+            }
+            rightSideActionsContainerContent += `</div>`
+            actionsHtml += rightSideActionsContainerContent
+        } else {
+                actionsHtml += `<div></div>`
+        }
+
+        actionsHtml += '</div>'
+        actionsHtml += '</td>'
+
+        const $actionsRow = $('<tr class="ticket-actions-row"></tr>').html(actionsHtml)
+        $clickedRow.after($actionsRow)
+    });
+
+    $('#ticketList').on('click', '.submit-commented-action-btn', function() {
+        const ticketId = $(this).data('ticket-id')
+        const action = $(this).data('action-type')
+        const $ticketRow = $(this).closest('.ticket-actions-row').prev('.ticket-item')
+        const comment = $(`#quickActionComment-${ticketId}`).val().trim()
+
+        if (action === 'REJECTED' && !comment) {
+            showDashboardAlert('Comments are required to reject a ticket.', 'warning')
+            $(`#quickActionComment-${ticketId}`).focus()
+            return
+        }
+        updateTicketStatusOnDashboard(ticketId, action, comment, $ticketRow)
+    });
+
+    $('#ticketList').on('click', '.quick-action-btn', function() {
+        const ticketId = $(this).data('ticket-id')
+        const action = $(this).data('action')
+        const $ticketRow = $(this).closest('.ticket-actions-row').prev('.ticket-item')
+        let comment = ""
+        updateTicketStatusOnDashboard(ticketId, action, comment, $ticketRow)
+    })
+
+    $('#createTicketForm').on('submit', function(e) {
+        e.preventDefault()
+
+        const $submitButton = $(this).find('button[type="submit"]')
+        $submitButton.prop('disabled', true)
+
+        let selectedCategory = $('#ticketCategory').val()
+        if (selectedCategory === 'Other') {
+            const customCat = $('#customCategory').val().trim()
+            if (!customCat) {
+                alert("Please enter a name for the custom category.")
+                $('#customCategory').focus()
+                $submitButton.prop('disabled', false)
+                return
+            }
+            selectedCategory = customCat
+        }
+
+        const ticketData = {
+            title: $('#ticketTitle').val(),
+            description: $('#ticketDescription').val(),
+            priority: $('#ticketPriority').val(),
+            category: selectedCategory,
+            createdById: currentUserId 
+        }
+
+        const formData = new FormData()
+        formData.append('ticket', new Blob([JSON.stringify(ticketData)], { type: "application/json" }))
+        
+        let fileInput = $('#ticketFiles')[0]
+        if (fileInput.files && fileInput.files.length > 0) {
+            for (let i = 0; i < fileInput.files.length; i++) {
+                formData.append('files', fileInput.files[i])
+            }
+        }
+
+        $.ajax({
+            url: '/app/api/tickets', 
+            type: 'POST',
+            data: formData,
+            processData: false, 
+            contentType: false, 
+            success: function(res) {
+                 $('#ticketModal').modal('hide');
+                
+                showDashboardAlert("Ticket created successfully!", 'success'); 
+                
+                $('#createTicketForm')[0].reset();
+                $('#customCategoryDiv').hide();
+                $('#customCategory').val('');
+                loadTickets(currentStatusFilter, 1); 
+                loadCategories();
+            },
+            complete: function() {
+                $submitButton.prop('disabled', false)
+            }
+        })
+    })
+    
+    $('#logoutButton').on('click', function() {
+        $.ajax({
+            url: '/logout',
+            type: 'POST',
+            success: function() {
+                disconnectWebSocket()
+                window.location.replace('/login')
+            }
+        })
+    })
+})
+</script>
+</html>
