@@ -28,7 +28,7 @@ Core Features:
   - Maven
  
   Needed to run:
-  - >= Java 17
+  - Java 17+
   - Maven
   - Oracle Database. Set up -> ticket-service/src/main/resources/application.properties
   - ActiveMQ. Set up -> tcp://localhost:61616
